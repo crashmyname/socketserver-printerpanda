@@ -1,0 +1,22 @@
+{
+  "name": "printer-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "escpos": "^3.0.0-alpha.6",
+    "express": "^5.2.1",
+    "node-thermal-printer": "^4.6.0",
+    "pdf-to-printer": "^5.8.0",
+    "puppeteer": "^25.1.0",
+    "usb": "^2.17.0"
+  }
+}

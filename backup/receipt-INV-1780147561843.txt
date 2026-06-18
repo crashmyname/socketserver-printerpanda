@@ -1,0 +1,37 @@
+     KOPERASI KARYAWAN
+     Jl. Industri No. 88
+    Telp : 0812-0000-0000
+--------------------------------
+Invoice : INV-1780147561843
+Date    : 30/5/2026, 20.26.01
+Cashier : Admin
+Payment : CASH
+--------------------------------
+Chiki Komo
+1 x 5.000		5.000
+
+Sprite
+1 x 4.000		4.000
+
+Risol
+5 x 3.000		15.000
+
+--------------------------------
+Subtotal : 24.000
+TOTAL    : 24.000
+Bayar    : 50.000
+Kembali  : 26.000
+--------------------------------
+Member	: Budi Santoso
+Cashback	: 25.000
+--------------------------------
+
+      TERIMA KASIH
+    BELANJA ANDA GRATIS
+  JIKA TIDAK MENERIMA STRUK
+
+  www.koperasi-stanley.com
+
+
+
+

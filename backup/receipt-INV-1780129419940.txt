@@ -1,0 +1,30 @@
+     KOPERASI KARYAWAN
+     Jl. Industri No. 88
+    Telp : 0812-0000-0000
+--------------------------------
+Invoice : INV-1780129419940
+Date    : 30/5/2026, 15.23.39
+Cashier : Admin
+Payment : CASH
+--------------------------------
+ITEM              QTY    TOTAL
+--------------------------------
+Risol            4x3.000   12.000
+Sprite           1x4.000    4.000
+Fanta            1x4.000    4.000
+--------------------------------
+Subtotal :    20.000
+TOTAL    :    20.000
+Bayar    :    50.000
+Kembali  :    30.000
+--------------------------------
+
+    TERIMA KASIH
+ BELANJA ANDA GRATIS
+JIKA TIDAK MENERIMA STRUK
+
+  www.koperasi-stanley.com
+
+
+
+
