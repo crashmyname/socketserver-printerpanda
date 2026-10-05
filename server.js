@@ -18,6 +18,11 @@ const MAX_RETRY = 2;
 const PRINT_TIMEOUT = 20000; // 20 detik
 const RESET_PRINTER_ON_STUCK = true;
 
+// Interval monitoring (ms)
+const MONITOR_INTERVAL     = 60_000;    // cek tiap 60 detik
+const QUEUE_STUCK_THRESHOLD = 60_000;   // queue diam > 60s → recover
+const HEALTH_CHECK_IDLE     = 300_000;  // idle > 5 menit → silent check
+
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR);
 
@@ -31,7 +36,8 @@ let printerReady = false;
 let psProcess = null;
 let psRestartCount = 0;
 let lastPrintTime = 0;
-const MIN_PRINT_INTERVAL = 500; // Minimal jeda 500ms antar print
+let lastActivity = Date.now();  // ← update tiap print sukses
+const MIN_PRINT_INTERVAL = 500;
 
 // ============================================
 // RESET PRINTER (Clear stuck jobs)
@@ -233,6 +239,35 @@ async function recoverPrinter() {
 }
 
 // ============================================
+// SILENT PRINTER CHECK — tanpa cetak fisik
+// ============================================
+function silentPrinterCheck() {
+    return new Promise((resolve) => {
+        try {
+            // Cek 1: printer masih terdaftar
+            const out = execSync(
+                `powershell -NoProfile -Command "Get-Printer -Name '${PRINTER_NAME}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name"`,
+                { timeout: 5000, encoding: 'utf8' }
+            );
+
+            if (!out || !out.trim()) {
+                return resolve(false);
+            }
+
+            // Cek 2: spooler service hidup
+            const spool = execSync(
+                `powershell -NoProfile -Command "(Get-Service -Name Spooler).Status"`,
+                { timeout: 5000, encoding: 'utf8' }
+            ).trim();
+
+            resolve(spool === 'Running');
+        } catch (e) {
+            resolve(false);
+        }
+    });
+}
+
+// ============================================
 // PRINT QUEUE PROCESSOR
 // ============================================
 async function processPrintQueue() {
@@ -250,6 +285,7 @@ async function processPrintQueue() {
     try {
         const result = await executePrintWithRetry(job);
         lastPrintTime = Date.now();
+        lastActivity  = Date.now();   // ← update aktivitas
         job.resolve(result);
     } catch (error) {
         console.error(`❌ Job failed: ${error.message}`);
@@ -299,7 +335,7 @@ async function executePrintWithRetry(job, attempt = 1) {
 }
 
 // ============================================
-// EXECUTE PRINT (Text-Only — sama untuk CASH & QRIS)
+// EXECUTE PRINT (Text-Only — CASH & QRIS sama)
 // ============================================
 function executePrint(job) {
     return new Promise((resolve, reject) => {
@@ -477,13 +513,12 @@ app.post('/print', async (req, res) => {
         const backupFile = path.join(BACKUP_DIR, `receipt-${receipt.invoice}.txt`);
         fs.writeFile(backupFile, text, 'utf8', () => {});
 
-        // Backup QR image (kalau ada) — untuk arsip saja, TIDAK dicetak
+        // Backup QR image (kalau ada) — arsip saja, TIDAK dicetak
         if (receipt.payment.toUpperCase() === 'QRIS' && qr_image) {
             const qrBackupFile = path.join(BACKUP_DIR, `qr-${receipt.invoice}.png`);
             fs.writeFile(qrBackupFile, Buffer.from(qr_image, 'base64'), () => {});
         }
 
-        // Fast response
         res.json({
             success: true,
             message: 'Receipt queued',
@@ -492,7 +527,6 @@ app.post('/print', async (req, res) => {
             elapsed: (Date.now() - start) + 'ms'
         });
 
-        // Queue print (text-only, sama untuk CASH & QRIS)
         queuePrint({
             text,
             invoice: receipt.invoice
@@ -518,6 +552,7 @@ app.post('/reprint', async (req, res) => {
             invoice: receipt.invoice + '-REPRINT'
         });
 
+        lastActivity = Date.now();
         res.json({ success: true, message: 'Reprint success' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -528,6 +563,7 @@ app.post('/reprint', async (req, res) => {
 app.post('/reset-printer', async (req, res) => {
     console.log('🔧 Manual printer reset requested');
     await recoverPrinter();
+    lastActivity = Date.now();
     res.json({
         success: printerReady,
         printer: currentPrinter,
@@ -549,7 +585,8 @@ app.get('/status', (req, res) => {
             name: currentPrinter,
             printing: isPrinting,
             queue: printQueue.length,
-            lastPrint: lastPrintTime ? new Date(lastPrintTime).toISOString() : null
+            lastPrint: lastPrintTime ? new Date(lastPrintTime).toISOString() : null,
+            lastActivity: new Date(lastActivity).toISOString()
         },
         uptime: process.uptime()
     });
@@ -575,6 +612,7 @@ app.get('/test', async (req, res) => {
 
     try {
         await executePrint({ text, invoice: testData.invoice });
+        lastActivity = Date.now();
         console.log('✅ Test print OK');
         res.json({ success: true, printer: currentPrinter, ready: printerReady });
     } catch (e) {
@@ -594,40 +632,42 @@ app.get('/health', (req, res) => {
         printer: currentPrinter,
         printing: isPrinting,
         queue: printQueue.length,
-        psAlive: psProcess && !psProcess.killed
+        psAlive: psProcess && !psProcess.killed,
+        lastActivity: new Date(lastActivity).toISOString()
     });
 });
 
 // ============================================
-// MONITORING — Auto restart jika printer stuck
+// MONITORING — Silent check, TIDAK cetak fisik
 // ============================================
-let lastSuccessfulPrint = Date.now();
-
 setInterval(async () => {
-    const idleTime = Date.now() - lastSuccessfulPrint;
+    const idleTime = Date.now() - lastActivity;
 
-    if (printQueue.length > 0 && !isPrinting && idleTime > 60000) {
+    // (a) Queue stuck: ada job tapi tidak diproses
+    if (printQueue.length > 0 && !isPrinting && idleTime > QUEUE_STUCK_THRESHOLD) {
         console.log('⚠ Queue stuck detected, recovering...');
         await recoverPrinter();
-        lastSuccessfulPrint = Date.now();
+        lastActivity = Date.now();
         processPrintQueue();
+        return;
     }
 
-    if (idleTime > 300000 && printerReady) {
-        console.log('🔍 Health check - testing printer...');
-        try {
-            await executePrint({
-                text: 'Health Check\n' + new Date().toISOString() + '\n\n\n',
-                invoice: 'HC-' + Date.now()
-            });
-            lastSuccessfulPrint = Date.now();
-            console.log('✅ Health check OK');
-        } catch (e) {
-            console.log('⚠ Health check failed, recovering...');
+    // (b) Silent health check — cek printer tanpa cetak
+    if (idleTime > HEALTH_CHECK_IDLE && printerReady) {
+        console.log('🔍 Silent health check...');
+
+        const ok = await silentPrinterCheck();
+
+        if (!ok) {
+            console.log('⚠ Printer tidak sehat, recovering...');
             await recoverPrinter();
+        } else {
+            console.log('✅ Printer sehat');
         }
+
+        lastActivity = Date.now();
     }
-}, 60000);
+}, MONITOR_INTERVAL);
 
 // ============================================
 // STARTUP
@@ -635,7 +675,7 @@ setInterval(async () => {
 async function startServer() {
     console.log('========================================');
     console.log('  Koperasi Stanley - Print Server');
-    console.log('  Mode: Anti-Stuck + Text-Only (QRIS=CASH)');
+    console.log('  Mode: Anti-Stuck + Silent Health Check');
     console.log('========================================');
 
     console.log('Initializing printer...');
